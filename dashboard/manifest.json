@@ -3,6 +3,6 @@
   "label": "AGY Orchestrator",
   "description": "Antigravity orchestrator — routes work to your models, meters quota pools, owns dispatch, guards read-only runs",
   "icon": "Activity",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "api": "plugin_api.py"
 }

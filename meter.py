@@ -78,6 +78,9 @@ DELEGATE_MODEL = "delegate_task/glm-5.3-flash"
 # soyelmismo/hermes-antigravity-subscription env scrub,
 # josefacero/hermes-gogogoogle git-fingerprint guard) ----
 GUARDS_FILE = CACHE_DIR / "guards.json"
+# Google emits real reset horizons inside 429 error text ("Individual quota
+# reached. Resets in 4h 12m") — the only Google-sourced clock we ever get.
+_RESET_RE = re.compile(r"Resets in (\d+)\s*h\s*(?:(\d+)\s*m)?")
 # agy is a closed binary: never hand it credential-looking env vars. Policy =
 # parent env minus matches; the keep-list wins first, settings
 # "env_passthrough" names survive on top (settings.json).
@@ -698,6 +701,12 @@ class Meter:
                 if is_429:
                     self.state["last_429_at"] = rec.get("ts") or _iso(now)
                     self._calibrate_budget(pool, p)
+                    m = _RESET_RE.search(errtxt)
+                    if m:
+                        # Real Google-sourced reset horizon, captured at the
+                        # 429 — shown in the pane as "resets in ~Xh (429 @ …)".
+                        p["quota_reset_min"] = int(m.group(1)) * 60 + int(m.group(2) or 0)
+                        p["quota_reset_observed_at"] = rec.get("ts") or _iso(now)
             # per-slug stats (agy_status / pane "model usage", 2026-11-15)
             sl = self.state.setdefault("slugs", {}).setdefault(
                 str(model), {"calls": 0, "errors": 0, "tokens": 0})

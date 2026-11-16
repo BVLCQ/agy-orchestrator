@@ -317,11 +317,27 @@ def test_ingest_429_uses_record_ts_for_last_429(m, runs):
     assert m.state["last_429_at"] == "2026-11-05T10:00:00+00:00"
 
 
-def test_ingest_agy_429_never_heats_zai(m, runs):
+def test_ingest_429_never_heats_zai(m, runs):
     runs.write("gemini-3.8-flash-high__a.json",
                make_rec(1, 1, 0, status="ERROR", error="429 quota"))
     m.ingest_runs()
     assert m.zai_pressure()["hot"] is False
+
+
+def test_ingest_429_parses_google_reset_horizon(m, runs):
+    runs.write("gemini-4-argon-high__a.json",
+               make_rec(1, 1, 0, status="ERROR",
+                        error="Individual quota reached. Resets in 4h 12m"))
+    runs.write("claude-opus-5-5-high__b.json",
+               make_rec(1, 1, 0, status="ERROR",
+                        error="RESOURCE_EXHAUSTED: quota. Resets in 21h"))
+    m.ingest_runs()
+    assert m.state["pools"]["argon"]["quota_reset_min"] == 252
+    assert m.state["pools"]["third_party"]["quota_reset_min"] == 21 * 60
+    # non-429 runs never set it
+    runs.write("gemini-3.8-flash-high__c.json", make_rec(1, 1, 0))
+    m.ingest_runs()
+    assert "quota_reset_min" not in m.state["pools"]["gemini"]
 
 
 def test_ingest_deletes_runs_older_than_seven_days(m, runs, clock):

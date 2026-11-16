@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-11-16
+
+### Added
+- **Google-sourced reset clocks in the pane**: the meter parses `Resets in Xh Ym` out of 429 error text (the only reset clock Google ever emits) and stores it per pool; pool cards show a live-ticking `⏳ resets in ~Xd Xh (from 429 @ …)` line — anchored to the observation time, honestly labeled, never an invented API clock.
+
+### Changed — pane redesign
+- **Routes picker moved to the top** of the pane (it is the thing the owner touches most).
+- Pools render as **status cards**: colored state dot (ok / hot / dry), week burn, 5h window, reset clock.
+- The raw `loadCodeAssist` JSON dump is gone — replaced by a one-line tier readout (`Gemini Code Assist · standard-tier · http 200 · fetched …`). Auth compacted to a single row with an inline ⟳.
+- `save selection` shows a `•` marker while unsaved edits exist; disclaimer text reduced to one line.
+
 ## [0.4.0] - 2026-11-16
 
 ### Changed — public release as **AGY Orchestrator** (renamed from agy-meter)

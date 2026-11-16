@@ -1,6 +1,9 @@
 // agy-orchestrator — desktop statusbar chip + pane for the Antigravity (agy) offload lane.
 // Data: GET /api/plugins/agy-orchestrator/state (served by the agy-orchestrator Python plugin).
 // Picker (ADR-002): GET/POST /api/plugins/agy-orchestrator/routes + POST /models/refresh.
+// Pane layout (2026-11-16): routes picker FIRST, pools as status cards with
+// Google-sourced reset clocks (parsed from 429 "Resets in Xh Ym"), tier probe
+// condensed to one line — raw JSON never rendered.
 import { jsx } from 'react/jsx-runtime'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@hermes/plugin-sdk'
@@ -34,7 +37,7 @@ const sectionTitle = {
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
   color: 'var(--ui-text-quaternary)',
-  margin: '10px 0 4px 0',
+  margin: '14px 0 5px 0',
 }
 const row = {
   display: 'flex',
@@ -42,10 +45,36 @@ const row = {
   gap: '8px',
   fontSize: '11px',
   padding: '2px 0',
-  borderBottom: '1px solid var(--ui-stroke-secondary)',
 }
 const label = { color: 'var(--ui-text-secondary)' }
 const value = { color: 'var(--ui-text-secondary)', fontVariantNumeric: 'tabular-nums' }
+const card = {
+  background: 'var(--ui-card)',
+  border: '1px solid var(--ui-stroke-secondary)',
+  borderRadius: '6px',
+  padding: '7px 9px',
+  marginBottom: '6px',
+}
+const dim = { fontSize: '10px', color: 'var(--ui-text-quaternary)' }
+const link = { color: 'var(--ui-accent)', cursor: 'pointer', userSelect: 'none' }
+
+// Google emits "Resets in Xh Ym" inside 429 errors; the meter stores the
+// horizon + observation time. Tick it down live from the observation anchor.
+const resetRemainMin = (p) => {
+  if (!p || p.quota_reset_min == null) return null
+  let minsAgo = 0
+  if (p.quota_reset_observed_at) {
+    const t = Date.parse(p.quota_reset_observed_at)
+    if (!Number.isNaN(t)) minsAgo = Math.floor((Date.now() - t) / 60000)
+  }
+  return Math.max(0, p.quota_reset_min - minsAgo)
+}
+const fmtDur = (min) => {
+  const d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60
+  if (d > 0) return d + 'd ' + h + 'h'
+  if (h > 0) return h + 'h' + (m ? ' ' + m + 'm' : '')
+  return m + 'm'
+}
 
 export default {
   id: 'agy-orchestrator',
@@ -146,7 +175,7 @@ export default {
         setSlots({ ...base, [r]: list })
       }
       const inputStyle = {
-        flex: 1, minWidth: 0, fontSize: '10px', padding: '2px 4px',
+        flex: 1, minWidth: 0, fontSize: '10px', padding: '3px 6px',
         color: 'var(--ui-text-secondary)',
         background: 'var(--ui-card)',
         border: '1px solid var(--ui-stroke-secondary)',
@@ -169,6 +198,7 @@ export default {
         ],
       })
       const canSave = ROUTE_ORDER.every((r) => slotsFor(r)[0])
+      const dirty = slots != null
       const save = async () => {
         if (!canSave) return
         setStatus('saving…')
@@ -203,44 +233,42 @@ export default {
         return jsx('div', { style: { ...sectionTitle, textTransform: 'none' },
           children: 'routes (model picker) — loading…' })
       }
-      const link = { color: 'var(--ui-accent)', cursor: 'pointer', userSelect: 'none', padding: '2px 0' }
       return jsx('div', { children: [
-        jsx('div', { style: sectionTitle, key: 't',
+        jsx('div', { style: { ...sectionTitle, margin: '0 0 5px 0' }, key: 't',
           children: 'routes — pick the models (primary → fallback)' }),
         ...ROUTE_ORDER.map((r) => {
           const list = slotsFor(r)
-          return jsx('div', { key: 'route-' + r,
-            style: { ...row, display: 'block', padding: '4px 0' }, children: [
-              jsx('div', { key: 'lbl', style: label, children: r }),
-              jsx('div', { key: 'sel',
-                style: { display: 'flex', gap: '4px', alignItems: 'center', marginTop: '2px' },
-                children: list.map((_, i) => [
-                  i > 0 ? jsx('span', { key: 'arr' + i,
-                    style: { color: 'var(--ui-text-quaternary)' }, children: '→' }) : null,
-                  selectEl(r, i, list),
-                ]).flat() }),
-            ] })
+          return jsx('div', { key: 'route-' + r, style: card, children: [
+            jsx('div', { key: 'lbl', style: { ...dim, textTransform: 'uppercase',
+              letterSpacing: '0.06em', marginBottom: '4px' }, children: r }),
+            jsx('div', { key: 'sel',
+              style: { display: 'flex', gap: '4px', alignItems: 'center' },
+              children: list.map((_, i) => [
+                i > 0 ? jsx('span', { key: 'arr' + i,
+                  style: { color: 'var(--ui-text-quaternary)' }, children: '→' }) : null,
+                selectEl(r, i, list),
+              ]).flat() }),
+          ] })
         }),
-        jsx('div', { key: 'delegate', style: { ...row, borderBottom: 'none' }, children: [
-          jsx('span', { style: label, children: 'hermes_delegate' }),
-          jsx('span', { style: value, children: 'delegate_task · glm-5.3-flash · fixed' }),
+        jsx('div', { key: 'delegate', style: { ...row, marginBottom: '4px' }, children: [
+          jsx('span', { style: dim, children: 'hermes_delegate' }),
+          jsx('span', { style: dim, children: 'delegate_task · glm-5.3-flash · fixed' }),
         ] }),
-        jsx('div', { key: 'actions', style: { display: 'flex', gap: '10px', margin: '4px 0' }, children: [
+        jsx('div', { key: 'actions', style: { display: 'flex', gap: '12px',
+          alignItems: 'center', margin: '2px 0' }, children: [
           jsx('span', { key: 'save', onClick: save,
-            style: { ...link, opacity: canSave ? 1 : 0.4 },
-            children: '⌘ save selection' }),
-          jsx('span', { key: 'refresh', onClick: refreshModels, style: link,
-            children: '⟳ refresh model catalog' }),
+            style: { ...link, fontSize: '11px', opacity: canSave ? 1 : 0.4 },
+            children: (dirty ? '• ' : '') + 'save selection' }),
+          jsx('span', { key: 'refresh', onClick: refreshModels,
+            style: { ...link, fontSize: '11px' },
+            children: '⟳ refresh catalog' }),
+          status ? jsx('span', { key: 'status', style: dim,
+            children: status }) : null,
         ] }),
-        status ? jsx('div', { key: 'status',
-          style: { fontSize: '10px', paddingBottom: '4px',
-                   color: status.indexOf('error') === 0 ? 'var(--ui-accent)'
-                     : 'var(--ui-text-quaternary)' },
-          children: status }) : null,
-        jsx('div', { key: 'cat', style: { fontSize: '10px', color: 'var(--ui-text-quaternary)' },
-          children: 'catalog: ' + bases.length + ' models · fetched '
+        jsx('div', { key: 'cat', style: dim,
+          children: bases.length + ' models · fetched '
             + String(models.fetched_at || '–').slice(5, 16)
-            + ' · auto-refreshes every 6h' }),
+            + ' · auto 6h' }),
       ] })
     }
 
@@ -266,55 +294,61 @@ export default {
       const pools = data.pools || {}
       const glm = data.glm || {}
       const errs = (data.errors || []).slice(-5).reverse()
-      const poolBlock = (name, p) => {
+      const tier0 = ((quota.data && quota.data.allowedTiers) || [])[0] || {}
+      const poolCard = (name, p) => {
         p = p || {}
-        const est = p.budget_calibrated ? ' (calibrated)' : ' (est. budget)'
-        const tag = p.dry ? 'DRY — wait for quota reset' : p.hot ? 'HOT — router avoiding' : 'ok'
-        return jsx('div', { children: [
-          jsx('div', { style: row, children: [
-            jsx('span', { style: label, children: name + est }),
-            jsx('span', { style: value,
-              children: tag + ' · week ' + fmtTok(p.week_tokens) + ' · ' + (p.calls || 0) + ' calls / ' + (p.errors || 0) + ' errors' }),
+        const dry = !!p.dry, hot = !!p.hot
+        const dotColor = dry ? '#f85149' : hot ? '#d29922' : '#3fb950'
+        const tag = dry ? 'dry — waiting on quota reset' : hot ? 'hot — router avoiding' : 'ok'
+        const remain = resetRemainMin(p)
+        return jsx('div', { style: card, children: [
+          jsx('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '6px' }, children: [
+            jsx('span', { key: 'dot', style: { width: '6px', height: '6px', borderRadius: '50%',
+              background: dotColor, flexShrink: 0 } }),
+            jsx('span', { key: 'nm', style: { ...label, fontWeight: 600 }, children: name }),
+            jsx('span', { key: 'tag', style: { marginLeft: 'auto', ...value,
+              color: (dry || hot) ? dotColor : 'var(--ui-text-quaternary)' },
+              children: tag }),
           ] }),
-          jsx('div', { style: row, children: [
-            jsx('span', { style: label, children: '  window tokens in / out / think' }),
-            jsx('span', { style: value,
-              children: fmtTok(p.tokens_in) + ' / ' + fmtTok(p.tokens_out) + ' / ' + fmtTok(p.thinking_tokens) }),
+          jsx('div', { key: 'stats', style: row, children: [
+            jsx('span', { style: dim, children: 'week ' + fmtTok(p.week_tokens) +
+              ' · ' + (p.calls || 0) + ' calls / ' + (p.errors || 0) + ' errors' +
+              (p.budget_calibrated ? ' · budget calibrated' : '') }),
           ] }),
+          jsx('div', { key: 'win', style: row, children: [
+            jsx('span', { style: dim, children: '5h window in/out/think: ' +
+              fmtTok(p.tokens_in) + ' / ' + fmtTok(p.tokens_out) + ' / ' + fmtTok(p.thinking_tokens) }),
+          ] }),
+          remain != null ? jsx('div', { key: 'reset', style: {
+            ...dim, color: 'var(--ui-accent)', paddingTop: '2px' },
+            title: 'horizon from Google\'s 429 message, observed ' +
+              String(p.quota_reset_observed_at || '').slice(5, 16) +
+              ' — ticks down live, not a Google API clock',
+            children: '⏳ resets in ~' + fmtDur(remain) +
+              ' (from 429 @ ' + String(p.quota_reset_observed_at || '').slice(5, 16) + ')' }) : null,
         ] })
       }
       return jsx('div', { style: { padding: '10px 12px', fontSize: '11px' }, children: [
-        // Auth
-        jsx('div', { style: sectionTitle, children: 'auth' }),
+        // Routes picker (ADR-002) — owner selects the models per route. FIRST.
+        jsx(RoutesPicker, { key: 'routes-picker' }),
+        // Auth — one compact row with inline action
+        jsx('div', { style: sectionTitle, key: 'auth-t', children: 'auth' }),
         jsx('div', { style: row, key: 'auth-row', children: [
           jsx('span', { style: label, children: auth.email || '–' }),
-          jsx('span', { style: value, children: auth.needs_reauth ? 'RE-AUTH NEEDED'
-            : auth.minutes_left != null ? auth.minutes_left + ' min left' : (auth.ok ? 'ok' : 'down') }),
+          jsx('span', { style: { ...value, display: 'flex', gap: '8px', alignItems: 'center' }, children: [
+            jsx('span', { key: 'st', style: auth.needs_reauth ? { color: '#d29922' } : {},
+              children: auth.needs_reauth ? 'RE-AUTH NEEDED'
+                : auth.minutes_left != null ? auth.minutes_left + ' min left' : (auth.ok ? 'ok' : 'down') }),
+            jsx('span', { key: 'act', onClick: triggerReauth, style: link, children: '⟳' }),
+          ] }),
         ] }),
-        jsx('div', { key: 'auth-act', onClick: triggerReauth,
-          style: { fontSize: '11px', color: 'var(--ui-accent)', cursor: 'pointer',
-                   padding: '2px 0', userSelect: 'none' },
-          children: auth.needs_reauth ? '⟳ attempt silent re-auth now'
-                                      : '⟳ refresh auth (silent)' }),
-        // Quota
-        jsx('div', { style: sectionTitle, children: 'server quota (loadCodeAssist)' }),
-        jsx('div', { style: row, children: [
-          jsx('span', { style: label, children: 'http / fetched' }),
-          jsx('span', { style: value,
-            children: (quota.http || '–') + ' · ' + (quota.fetched_at || '–').slice(5, 16) }),
-        ] }),
-        quota.data ? jsx('pre', { style: {
-          margin: '4px 0 0 0', padding: '6px', fontSize: '10px', whiteSpace: 'pre-wrap',
-          color: 'var(--ui-text-quaternary)',
-          border: '1px solid var(--ui-stroke-secondary)', borderRadius: '4px',
-        }, children: JSON.stringify(quota.data).slice(0, 500) }) : null,
-        // Pools
-        jsx('div', { style: sectionTitle, children: 'agy pools (5h window)' }),
-        jsx('div', { key: 'pools-note', style: { fontSize: '10px', color: 'var(--ui-text-quaternary)', paddingBottom: '4px' },
-          children: 'Token burn and pressure states are EXACT (recorded from every Hermes dispatch; 429s calibrate budgets). They do not include IDE or non-wrapper usage — the Antigravity IDE Usage panel is the source of truth for account quota.' }),
-        poolBlock('gemini (shared)', pools.gemini),
-        poolBlock('argon (dedicated)', pools.argon),
-        poolBlock('third-party (separate)', pools.third_party),
+        // Pools — status cards with Google-sourced reset clocks
+        jsx('div', { style: sectionTitle, key: 'pools-t', children: 'quota pools' }),
+        poolCard('gemini · shared (flash, hydrogen)', pools.gemini),
+        poolCard('argon · dedicated', pools.argon),
+        poolCard('third-party (opus, sonnet)', pools.third_party),
+        jsx('div', { key: 'pools-note', style: { ...dim, margin: '2px 0 0 0' },
+          children: 'burn is exact (Hermes-dispatched runs only) · IDE Usage panel = account truth' }),
         // Model usage (per-slug lifetime stats from the meter, ADR-003)
         (() => {
           const slugs = Object.entries(data.slugs || {})
@@ -323,7 +357,8 @@ export default {
           if (!slugs.length) return null
           return jsx('div', { key: 'slug-usage', children: [
             jsx('div', { style: sectionTitle, children: 'model usage (lifetime)' }),
-            ...slugs.map(([slug, s]) => jsx('div', { style: row, key: 'slug-' + slug, children: [
+            ...slugs.map(([slug, s]) => jsx('div', { style: { ...row,
+              borderBottom: '1px solid var(--ui-stroke-secondary)' }, key: 'slug-' + slug, children: [
               jsx('span', { style: label, children: slug }),
               jsx('span', { style: value,
                 children: fmtTok(s.tokens) + ' tok · ' + (s.calls || 0) + ' calls' +
@@ -331,25 +366,31 @@ export default {
             ] })),
           ] })
         })(),
+        // Quota tier probe — one line; the raw JSON never rendered
+        jsx('div', { style: sectionTitle, key: 'q-t', children: 'server quota (loadCodeAssist)' }),
+        jsx('div', { style: row, key: 'q-row', children: [
+          jsx('span', { style: label,
+            children: (tier0.name || 'tier') + (tier0.id ? ' · ' + tier0.id : '') }),
+          jsx('span', { style: value,
+            children: 'http ' + (quota.http || '–') + ' · ' + (quota.fetched_at || '–').slice(5, 16) }),
+        ] }),
         // GLM telemetry
-        jsx('div', { style: sectionTitle, children: 'hermes lanes (t/s ewma)' }),
-        Object.keys(glm).length === 0 ? jsx('div', { style: label, key: 'glm-empty', children: 'no data yet' }) :
+        jsx('div', { style: sectionTitle, key: 'glm-t', children: 'hermes lanes (t/s ewma)' }),
+        Object.keys(glm).length === 0 ? jsx('div', { style: dim, key: 'glm-empty', children: 'no data yet' }) :
         Object.entries(glm).map(([k, v]) => jsx('div', { style: row, key: 'glm-' + k, children: [
           jsx('span', { style: label, children: k }),
           jsx('span', { style: value,
             children: (v.tps_ewma != null ? v.tps_ewma + ' t/s · ' : '') + (v.calls || 0) + ' calls' }),
         ] })),
         // Errors
-        errs.length ? jsx('div', { style: sectionTitle, children: 'recent errors' }) : null,
-        ...errs.map((e, i) => jsx('div', { style: row, key: i, children: [
+        errs.length ? jsx('div', { style: sectionTitle, key: 'err-t', children: 'recent errors' }) : null,
+        ...errs.map((e, i) => jsx('div', { style: row, key: 'err-' + i, children: [
           jsx('span', { style: label, children: (e.ts || '').slice(5, 16) + ' ' + (e.provider || '') + '/' + (e.model || '') }),
           jsx('span', { style: value, children: String(e.status) }),
         ] })),
-        // Routes picker (ADR-002): owner selects the models per route
-        jsx(RoutesPicker, { key: 'routes-picker' }),
-        jsx('div', { style: { ...row, borderBottom: 'none' }, children: [
-          jsx('span', { style: label, children: 'updated' }),
-          jsx('span', { style: value, children: (data.updated_at || '–').slice(5, 19) }),
+        jsx('div', { style: { ...row, marginTop: '4px' }, key: 'upd', children: [
+          jsx('span', { style: dim, children: 'updated' }),
+          jsx('span', { style: dim, children: (data.updated_at || '–').slice(5, 19) }),
         ] }),
       ] })
     }
