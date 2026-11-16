@@ -38,7 +38,7 @@ jobs:
         run: |
           # From tests/ — collecting the repo root would import the plugin
           # package's __init__.py (relative imports, gateway internals).
-          cd tests && .venv/bin/python -m pytest -q -p no:cacheprovider .
+          cd tests && "$GITHUB_WORKSPACE/.venv/bin/python" -m pytest -q -p no:cacheprovider .
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

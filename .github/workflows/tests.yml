@@ -51,7 +51,8 @@ jobs:
           (cd "$RUNNER_TEMP/hermes" && uv pip install --python "$GITHUB_WORKSPACE/.venv" -e . pytest)
       - name: Tests
         run: |
-          PY=.venv/bin/python; [ -x "$PY" ] || PY=.venv/Scripts/python.exe
+          PY="$GITHUB_WORKSPACE/.venv/bin/python"
+          [ -x "$PY" ] || PY="$GITHUB_WORKSPACE/.venv/Scripts/python.exe"
           # From tests/ — collecting the repo root would import the plugin
           # package's __init__.py (relative imports, gateway internals).
           cd tests && "$PY" -m pytest -q -p no:cacheprovider .
