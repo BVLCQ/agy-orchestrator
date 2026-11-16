@@ -1,10 +1,12 @@
-"""agy-meter — state meter for the Antigravity (agy) offload lane.
+"""agy-orchestrator — quota meter, router and owned dispatch for the
+Antigravity (agy) offload lane.
 
 Owns: keychain auth state (token held in memory only, never written to state),
 server-side quota snapshot (loadCodeAssist, display-only, owner-ruled 2026-11-04),
-per-pool metering of wrapped agy dispatches (~/.hermes/cache/agy-meter/runs/),
-and GLM-side provider telemetry (t/s EWMA, error counters) fed by observer hooks.
-State is mirrored to ~/.hermes/cache/agy-meter/state.json for the desktop chip.
+per-pool metering of agy dispatches (~/.hermes/cache/agy-orchestrator/runs/),
+model-selectable routing with owner picker (ADR-002), env-scrubbed git-guarded
+dispatch (ADR-003), and GLM-side provider telemetry fed by observer hooks.
+State is mirrored to ~/.hermes/cache/agy-orchestrator/state.json for the chip.
 """
 from __future__ import annotations
 
@@ -23,9 +25,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
-CACHE_DIR = HERMES_HOME / "cache" / "agy-meter"
+CACHE_DIR = HERMES_HOME / "cache" / "agy-orchestrator"
 RUNS_DIR = CACHE_DIR / "runs"
 STATE_FILE = CACHE_DIR / "state.json"
+
+
+def _migrate_legacy_cache() -> None:
+    """One-time rename from the pre-public name (agy-meter). Runs at import,
+    before any reader; never overwrites an existing new-style directory."""
+    legacy = HERMES_HOME / "cache" / "agy-meter"
+    try:
+        if legacy.is_dir() and not CACHE_DIR.exists():
+            legacy.rename(CACHE_DIR)
+    except OSError:
+        pass
+
+
+_migrate_legacy_cache()
 
 KEYCHAIN_CMD = ["security", "find-generic-password", "-s", "gemini", "-a", "antigravity", "-w"]
 LCA_URL = "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
@@ -784,7 +800,7 @@ class Meter:
                 prov = str(e.get("provider", ""))
                 model = str(e.get("model", ""))
                 if "429" in str(e.get("status", "")) and (
-                        prov == "zai" or prov == "agy-meter-mw"
+                        prov == "zai" or prov == "agy-orchestrator-mw"
                         or model.startswith("glm")):
                     last = e["ts"]
                     last_429_ts = datetime.fromisoformat(e["ts"]).timestamp()
@@ -826,7 +842,7 @@ class Meter:
                                          "model": model, "status": status})
             self.state["errors"] = self.state["errors"][-200:]
             if "429" in str(status) and (
-                    str(provider) in ("zai", "agy-meter-mw")
+                    str(provider) in ("zai", "agy-orchestrator-mw")
                     or str(model or "").startswith("glm")):
                 self._glm_success_streak = 0  # recovery clock restarts
                 self.state["last_429_at"] = _iso(_now())
@@ -889,8 +905,8 @@ class Meter:
         if self.started:
             return
         self.started = True
-        threading.Thread(target=self.tick, name="agy-meter", daemon=True).start()
-        threading.Thread(target=self._reap_dispatched, name="agy-meter-reap",
+        threading.Thread(target=self.tick, name="agy-orchestrator", daemon=True).start()
+        threading.Thread(target=self._reap_dispatched, name="agy-orchestrator-reap",
                          daemon=True).start()
 
 

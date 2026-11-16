@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-16
+
+### Changed — public release as **AGY Orchestrator** (renamed from agy-meter)
+- **Rename**: plugin `agy-meter` → `agy-orchestrator` everywhere (plugin name, dashboard namespace `/api/plugins/agy-orchestrator/`, desktop plugin id/label, thread names, internal provider tag `agy-orchestrator-mw`). A one-time import-time migration renames `~/.hermes/cache/agy-meter/` → `~/.hermes/cache/agy-orchestrator/` (never overwrites; existing picks, budgets, runs and guards carry over).
+- **The desktop plugin now ships in-repo** (`desktop/plugin.js`, dual layout like hermes-security) — previously it lived only in `~/.hermes/desktop-plugins/` outside version control.
+- `plugin.yaml` declares `requires_hermes: ">=0.23.0"`, `platforms: [macos]`, author/license/homepage.
+
+### Added
+- **CI (GitHub Actions)**: `tests.yml` — the suite against a real Hermes on the minimum declared version (blocking) and Hermes `main` (early warning, blocks only the weekly run), plus manifest validation. `release.yml` — tag-only release gate that publishes the GitHub Release the Hermes plugin catalog pins against.
+- `catalog-entry.yaml` for Hermes plugin catalog submission, `LICENSE` (MIT), `assets/banner.svg`, and a public-facing README with honest limitations and security disclosures.
+- Test suite file renamed to `test_agy_orchestrator.py` (loader contract unchanged).
+
 ## [0.3.1] - 2026-11-15
 
 ### Fixed (independent-review findings, deleg_4c8d0b5f)

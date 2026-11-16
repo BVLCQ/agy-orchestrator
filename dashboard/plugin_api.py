@@ -1,13 +1,13 @@
-"""agy-meter dashboard/desktop API — GET /state, POST /reauth, and the
+"""agy-orchestrator dashboard/desktop API — GET /state, POST /reauth, and the
 model-picker endpoints GET/POST /routes + POST /models/refresh (ADR-002).
 
-Mounted by the gateway at /api/plugins/agy-meter/ . /state reads the snapshot
-file the meter thread keeps fresh; /reauth triggers a zero-quota agy command
-(its startup performs silent auth when the cached refresh token is valid),
-re-reads the keychain, and returns fresh auth state. The picker endpoints are
-module-level and stateless (settings.json / models.json on disk) so they work
-regardless of which process instance serves them; the running meter picks
-external writes up via its settings-mtime check.
+Mounted by the gateway at /api/plugins/agy-orchestrator/ . /state reads the
+snapshot file the meter thread keeps fresh; /reauth triggers a zero-quota agy
+command (its startup performs silent auth when the cached refresh token is
+valid), re-reads the keychain, and returns fresh auth state. The picker
+endpoints are module-level and stateless (settings.json / models.json on disk)
+so they work regardless of which process instance serves them; the running
+meter picks external writes up via its settings-mtime check.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ router = APIRouter()
 
 _PLUGIN_DIR = Path(__file__).resolve().parent.parent
 _STATE = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) \
-    / "cache" / "agy-meter" / "state.json"
+    / "cache" / "agy-orchestrator" / "state.json"
 
 
 def _meter_mod():

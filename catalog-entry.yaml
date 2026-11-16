@@ -1,0 +1,34 @@
+name: agy-orchestrator
+repo: https://github.com/BVLCQ/agy-orchestrator
+sha: FILLED_AT_RELEASE
+description: >-
+  Orchestrate Google Antigravity (agy) from Hermes: the model picks a route
+  (plan / parallel) and the model resolves from the owner's picker selection —
+  only selected models ever run. Meters the three subscription quota pools with
+  429-calibrated budgets, dispatches env-scrubbed meter-owned agy runs
+  (agy_dispatch), verifies read-only runs with a git-fingerprint guard
+  (agy_guard), refreshes the model catalog from `agy models` automatically, and
+  renders a desktop status chip + pane with the model picker.
+maintainer: BVLCQ
+tier: community
+category: tools
+image: https://raw.githubusercontent.com/BVLCQ/agy-orchestrator/main/assets/banner.svg
+requires_hermes: ">=0.23.0"
+docs_url: https://github.com/BVLCQ/agy-orchestrator#readme
+version: "0.4.0"
+readme: true
+platforms:
+  - macos
+capabilities:
+  provides_tools:
+    - agy_route
+    - agy_status
+    - agy_dispatch
+    - agy_guard
+  provides_hooks:
+    - post_api_request
+    - api_request_error
+  provides_middleware:
+    - llm_request
+    - llm_execution
+  requires_env: []

@@ -1,11 +1,20 @@
-name: agy-meter
-version: 0.3.1
-description: "Antigravity (agy) meter + router + owned dispatch: auth/quota state, pool metering, route classifier with owner-selected models per route (heuristic default, Kev opt-in), agy_dispatch (env-scrubbed, structurally-metered, guard-wrapped), agy_guard git-fingerprint read-only guard, per-slug usage stats, delegate 429 one-retry."
+name: agy-orchestrator
+version: 0.4.0
+description: "Orchestrate Google Antigravity (agy) from Hermes: model-selectable routing with an owner picker (plan / parallel), quota metering across the three subscription pools with 429-calibrated budgets, meter-owned env-scrubbed dispatch (agy_dispatch), git-fingerprint read-only guard (agy_guard), auth lifecycle, and a desktop chip + pane."
+author: BVLCQ
+license: MIT
+homepage: https://github.com/BVLCQ/agy-orchestrator
+requires_hermes: ">=0.23.0"
+platforms:
+  - macos
 pip_dependencies: []
 requires_env: []
 provides_hooks:
   - post_api_request
   - api_request_error
+provides_middleware:
+  - llm_request
+  - llm_execution
 provides_tools:
   - agy_route
   - agy_status

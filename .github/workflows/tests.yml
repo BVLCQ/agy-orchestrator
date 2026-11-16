@@ -1,0 +1,61 @@
+name: Tests
+
+# PR / branch CI. The plugin's suite runs against a real Hermes (no mocks of
+# the core) on the minimum declared version (blocking) and on Hermes main
+# (early warning; blocks only the weekly scheduled run). Pattern credit:
+# TicoraX/OrqueHelx — including the install lesson: Hermes >= 0.22 declares
+# its dependencies only for Python >= 3.14, and uv must install it from
+# Hermes' own directory so [tool.uv] override-dependencies apply.
+# Injection note: only trusted contexts (matrix.*, github.ref, github.token)
+# are interpolated below; no untrusted event fields.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: ${{ matrix.os }} / hermes ${{ matrix.hermes }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    continue-on-error: ${{ matrix.hermes == 'main' && github.event_name != 'schedule' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        hermes: [v0.23.0, main]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Hermes ${{ matrix.hermes }}
+        run: |
+          git clone --quiet --depth 1 --branch "${{ matrix.hermes }}" \
+            https://github.com/NousResearch/hermes-agent "$RUNNER_TEMP/hermes"
+          # Python 3.14 + install from Hermes' own dir so uv applies its
+          # [tool.uv] override-dependencies; from outside, main is unresolvable.
+          uv venv --python 3.14 .venv
+          (cd "$RUNNER_TEMP/hermes" && uv pip install --python "$GITHUB_WORKSPACE/.venv" -e . pytest)
+      - name: Tests
+        run: |
+          PY=.venv/bin/python; [ -x "$PY" ] || PY=.venv/Scripts/python.exe
+          "$PY" -m pytest -q -p no:cacheprovider tests
+      - name: Plugin manifest validation
+        if: matrix.hermes != 'main'
+        run: |
+          PY=.venv/bin/python; [ -x "$PY" ] || PY=.venv/Scripts/python.exe
+          export HERMES_HOME="$RUNNER_TEMP/hermes-home"
+          "$PY" -m hermes_cli.main plugins validate . || true

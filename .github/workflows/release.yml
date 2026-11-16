@@ -1,0 +1,54 @@
+name: Release
+
+# Release automation for the Hermes plugin catalog. The catalog's admission
+# policy requires real releases/tags (not just a default branch) and pins
+# every entry to an exact 40-hex commit sha. This workflow fires only on a
+# pushed v*.*.* tag, re-runs the suite from scratch, and publishes the GitHub
+# Release that gives the catalog its "Released" evidence. Pattern credit:
+# soyelmismo/hermes-antigravity-subscription.
+# Injection note: only trusted contexts (github.ref, github.token) are
+# interpolated below; GITHUB_REF_NAME is read via shell env, not interpolation.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Hermes (minimum declared version)
+        run: |
+          git clone --quiet --depth 1 --branch v0.23.0 \
+            https://github.com/NousResearch/hermes-agent "$RUNNER_TEMP/hermes"
+          uv venv --python 3.14 .venv
+          (cd "$RUNNER_TEMP/hermes" && uv pip install --python "$GITHUB_WORKSPACE/.venv" -e . pytest)
+      - name: Tests
+        run: .venv/bin/python -m pytest -q -p no:cacheprovider tests
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Release notes: the CHANGELOG section for this version, if present.
+          NOTES=$(awk -v ver="$TAG" '
+            index($0, "## [" ver "]") { flag=1; next }
+            flag && /^## \[/ { exit }
+            flag { print }
+          ' CHANGELOG.md)
+          if [ -n "$NOTES" ]; then
+            gh release create "$TAG" --title "$TAG" --notes "$NOTES"
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi

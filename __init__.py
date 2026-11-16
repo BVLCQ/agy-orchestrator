@@ -1,10 +1,13 @@
-"""agy-meter — Antigravity lane meter + router plugin.
+"""agy-orchestrator — quota meter, router and owned-dispatch plugin for the
+Antigravity (agy) offload lane.
 
 Registers:
   * observer hooks -> GLM-side t/s + error telemetry into the meter
-  * llm_execution middleware -> 429 fallback (glm-5.3-flash pinned calls retry
-    once on glm-5.3; the parent loop is never touched)
-  * tools: agy_route (system-one lane classifier), agy_status (full state)
+  * llm_execution middleware -> one-retry fallback for the pinned
+    glm-5.3-flash model (delegate children + aux tasks; narrowed 2026-11-15)
+  * tools: agy_route (route classifier), agy_status (full state),
+    agy_dispatch (meter-owned, env-scrubbed, guard-wrapped dispatch),
+    agy_guard (git-fingerprint read-only guard)
 """
 from __future__ import annotations
 
@@ -101,7 +104,7 @@ def register(ctx) -> None:  # noqa: ANN001 — PluginContext from host
                     if len(_rerouted_requests) >= 256:
                         _rerouted_requests.clear()
                     _rerouted_requests.add(req_id)
-                meter.record_error("agy-meter-mw", model, "429->glm-5.3")
+                meter.record_error("agy-orchestrator-mw", model, "429->glm-5.3")
             raise
 
     ctx.register_middleware("llm_request", llm_request_guard)

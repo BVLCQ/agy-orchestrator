@@ -1,10 +1,10 @@
-"""Pytest suite for agy-meter (Meter) and its lane classifier.
+"""Pytest suite for agy-orchestrator (Meter) and its route classifier.
 
 Stdlib + pytest only. Module locations are resolved in this order:
-  1. AGY_METER_PATH / AGY_CLASSIFIER_PATH environment variables (file paths)
+  1. AGY_METER_DIR / AGY_CLASSIFIER_PATH environment variables (file paths)
   2. importable names (agy_meter, meter / classifier, agy_meter.classifier)
-  3. AGY_METER_DIR (default ~/.hermes/plugins/agy-meter): meter.py or __init__.py,
-     and classifier.py
+  3. AGY_METER_DIR (default ~/.hermes/plugins/agy-orchestrator): meter.py or
+     __init__.py, and classifier.py
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ import pytest
 # Module loading
 # --------------------------------------------------------------------------
 PLUGIN_DIR = Path(os.environ.get("AGY_METER_DIR")
-                  or Path.home() / ".hermes" / "plugins" / "agy-meter")
+                  or Path.home() / ".hermes" / "plugins" / "agy-orchestrator")
 
 
 def _load_from_file(name: str, path: Path):
@@ -646,7 +646,7 @@ def test_zai_backstop_constants_sane():
 
 @pytest.mark.parametrize("provider,model", [
     ("zai", "anything"),
-    ("agy-meter-mw", "whatever"),
+    ("agy-orchestrator-mw", "whatever"),
     ("openrouter", "glm-5.3-flash"),
 ])
 def test_zai_heating_providers_and_models(m, provider, model):
