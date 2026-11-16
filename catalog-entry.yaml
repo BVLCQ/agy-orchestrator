@@ -1,6 +1,6 @@
 name: agy-orchestrator
 repo: https://github.com/BVLCQ/agy-orchestrator
-sha: FILLED_AT_RELEASE
+sha: 77cf16932ecd70d3601a82be3b1e94dbf7a12d3a
 description: >-
   Orchestrate Google Antigravity (agy) from Hermes: the model picks a route
   (plan / parallel) and the model resolves from the owner's picker selection —
