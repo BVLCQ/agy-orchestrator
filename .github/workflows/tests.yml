@@ -52,7 +52,9 @@ jobs:
       - name: Tests
         run: |
           PY=.venv/bin/python; [ -x "$PY" ] || PY=.venv/Scripts/python.exe
-          "$PY" -m pytest -q -p no:cacheprovider tests
+          # From tests/ — collecting the repo root would import the plugin
+          # package's __init__.py (relative imports, gateway internals).
+          cd tests && "$PY" -m pytest -q -p no:cacheprovider .
       - name: Plugin manifest validation
         if: matrix.hermes != 'main'
         run: |
