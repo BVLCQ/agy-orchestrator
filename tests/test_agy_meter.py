@@ -354,10 +354,15 @@ def test_corpse_argon_slug_counts_against_argon_not_gemini(m, runs):
     assert m.state["pools"]["gemini"]["errors"] == 0
 
 
-def test_corpse_empty_file_is_counted(m, runs):
+def test_corpse_empty_file_is_skipped_not_errored(m, runs):
+    # Contract change (v0.3.1, review finding #1): dispatch() creates output
+    # files empty at spawn, so ingest must NEVER count an empty file — that
+    # fabricated one phantom error per >45s run. Runs that die without output
+    # are accounted exactly once by the dispatch reaper instead.
     runs.write_raw("gemini-3.8-flash-high__t1.json", "")
     m.ingest_runs()
-    assert m.state["pools"]["gemini"]["errors"] == 1
+    assert m.state["pools"]["gemini"]["errors"] == 0
+    assert m.state["slugs"] == {}
 
 
 def test_corpse_without_slug_delimiter_is_not_counted(m, runs):
@@ -1229,11 +1234,12 @@ def test_guard_not_a_repo_and_no_baseline(m, tmp_path):
 # agy_dispatch: owned dispatch, structural metering (ADR-003)
 # --------------------------------------------------------------------------
 class _FakeProc:
-    def __init__(self):
+    def __init__(self, rc=None):
         self.pid = 4242
+        self.returncode = rc
 
     def poll(self):
-        return None
+        return self.returncode
 
 
 def test_dispatch_spawns_scrubbed_and_structural(m, env, monkeypatch):
@@ -1289,3 +1295,74 @@ def test_dispatch_validates_inputs(m):
         m.dispatch(prompt="   ", model="x")
     with pytest.raises(ValueError):
         m.dispatch(prompt="ok", model="")
+
+
+# --------------------------------------------------------------------------
+# v0.3.1 review fixes: phantom errors, collisions, traversal, dead runs
+# --------------------------------------------------------------------------
+def test_ingest_skips_inflight_empty_run_file(m, runs):
+    # review finding #1: dispatch() creates the output file empty at spawn;
+    # a tick landing mid-run must NOT count a phantom error, and the cursor
+    # must not advance past it (the completed file ingests on a later tick).
+    p = runs.write_raw("gemini-3.8-flash-high__inflight-x.json", "")
+    m.ingest_runs()
+    g = m.state["pools"]["gemini"]
+    assert g["calls"] == 0 and g["errors"] == 0
+    assert m.state["slugs"] == {}
+    runs.write_raw(p.name, json.dumps(make_rec(10, 5, 0)))
+    m.ingest_runs()
+    assert m.state["pools"]["gemini"]["calls"] == 1
+    assert m.state["slugs"]["gemini-3.8-flash-high"]["tokens"] == 15
+
+
+def test_dispatch_run_ids_unique_within_same_second(m, monkeypatch):
+    # review finding #2: two same-name dispatches in one turn must not share
+    # an output path (second open("wb") would truncate the first mid-flight).
+    monkeypatch.setattr(mm.subprocess, "Popen", lambda cmd, **kw: _FakeProc())
+    monkeypatch.setattr(mm.shutil, "which", lambda n: "/fake/agy")
+    a = m.dispatch(prompt="a", model="gemini-3.8-flash-high", name="wave")
+    b = m.dispatch(prompt="b", model="gemini-3.8-flash-high", name="wave")
+    assert a["output_file"] != b["output_file"]
+
+
+def test_dispatch_rejects_path_traversal_model(m, monkeypatch):
+    # review finding #3: the slug becomes a filename — traversal and spaces
+    # are refused before any file is created.
+    monkeypatch.setattr(mm.subprocess, "Popen", lambda cmd, **kw: _FakeProc())
+    monkeypatch.setattr(mm.shutil, "which", lambda n: "/fake/agy")
+    with pytest.raises(ValueError):
+        m.dispatch(prompt="x", model="../../evil")
+    with pytest.raises(ValueError):
+        m.dispatch(prompt="x", model="gemini flash")
+
+
+def test_reap_accounts_dead_run_without_output_exactly_once(m, env, monkeypatch):
+    # review finding #1 (dead side): a run that dies with rc!=0 and no output
+    # is accounted by the reaper — once — and the empty file never re-counts.
+    monkeypatch.setattr(mm.subprocess, "Popen", lambda cmd, **kw: _FakeProc(rc=3))
+    monkeypatch.setattr(mm.shutil, "which", lambda n: "/fake/agy")
+    out = m.dispatch(prompt="x", model="gemini-3.8-flash-high", name="dead")
+    assert out["pid"] in m._dispatched
+    m._reap_one(out["pid"], m._dispatched[out["pid"]])
+    assert out["pid"] not in m._dispatched
+    assert m.state["pools"]["gemini"]["errors"] == 1
+    assert m.state["slugs"]["gemini-3.8-flash-high"]["errors"] == 1
+    m.ingest_runs()  # empty file must not double-count
+    assert m.state["pools"]["gemini"]["errors"] == 1
+
+
+def test_reap_success_and_written_failure_are_not_phantomed(m, env, monkeypatch):
+    monkeypatch.setattr(mm.subprocess, "Popen", lambda cmd, **kw: _FakeProc(rc=0))
+    monkeypatch.setattr(mm.shutil, "which", lambda n: "/fake/agy")
+    out = m.dispatch(prompt="x", model="claude-sonnet-5-5-high", name="ok")
+    m._reap_one(out["pid"], m._dispatched[out["pid"]])  # rc=0: no accounting
+    assert m.state["pools"]["third_party"]["errors"] == 0
+    # rc!=0 but output WAS written: ingest owns the accounting, reaper stays out
+    monkeypatch.setattr(mm.subprocess, "Popen", lambda cmd, **kw: _FakeProc(rc=1))
+    out2 = m.dispatch(prompt="y", model="claude-sonnet-5-5-high", name="wrote")
+    Path(out2["output_file"]).write_text(json.dumps(
+        make_rec(5, 5, 0, status="ERROR", error="429")))
+    m._reap_one(out2["pid"], m._dispatched[out2["pid"]])
+    assert m.state["pools"]["third_party"]["errors"] == 0  # not yet ingested
+    m.ingest_runs()
+    assert m.state["pools"]["third_party"]["errors"] == 1  # counted exactly once

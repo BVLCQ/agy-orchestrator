@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-11-15
+
+### Fixed (independent-review findings, deleg_4c8d0b5f)
+- **Phantom error on every >45s dispatch**: the output file is created empty at spawn; a 45s ingest tick landing mid-run counted a fabricated error (pool + slug). `ingest_runs` now skips zero-size files WITHOUT advancing the cursor (the completed file ingests later), and the dispatch reaper accounts runs that die (rc≠0) without output — exactly once (`_reap_one`). Old `empty-file=corpse` test contract inverted accordingly.
+- **Same-second run-file collisions**: `run_id` gains a per-meter sequence number — two same-name dispatches in one turn can never share (and truncate) an output path.
+- **Model-slug path traversal**: `agy_dispatch` validates the slug against `^[\w.+-]+$` before any file is created.
+- **CI watchdog false-green**: the cron script matched `*" passed"*`, so `2 failed, 166 passed` read as green. Failure/unknown patterns now match BEFORE the pass pattern; missing tests dir and unexpected output both alert.
+
+### Changed
+- `env_passthrough` matching is now case-insensitive (matches the scrub's philosophy); `.err` files get the same 7-day cleanup as `.json`; `dispatches[].readonly` reflects a recorded baseline (`guard.fp`), not a requested flag; `agy_route` replies carry a `note` when >20 chunks were truncated.
+- Pane renders a "model usage (lifetime)" section (top slugs by tokens) — making the v0.3.0 CHANGELOG claim true.
+
+### Known
+- The desktop plugin (`~/.hermes/desktop-plugins/agy-meter/`) still sits outside this git repo (single-repo decision pending).
+
 ## [0.3.0] - 2026-11-15
 
 ### Added

@@ -12,6 +12,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -79,12 +80,14 @@ _KEEP_UPPER = {k.upper() for k in ENV_ALWAYS_KEEP}
 def scrubbed_env(passthrough=None) -> dict:
     """Parent environment minus credential-looking entries, for agy children
     (closed binary — it needs none of them). Matching is name-based, upper-
-    case-insensitive; the keep list and `passthrough` names always survive."""
-    extra = {str(p) for p in (passthrough or ())}
+    case-insensitive (passthrough included); the keep list always survives."""
+    passthrough = passthrough or ()
+    extra = {str(p) for p in passthrough}
+    extra_upper = {str(p).upper() for p in passthrough}
     out = {}
     for k, v in os.environ.items():
         ku = k.upper()
-        if k in extra or ku in _KEEP_UPPER:
+        if k in extra or ku in extra_upper or ku in _KEEP_UPPER:
             out[k] = v
             continue
         if ku in ENV_CRED_NAMES or any(s in ku for s in ENV_CRED_SUBSTRINGS):
@@ -304,7 +307,8 @@ class Meter:
         self._next_auth = 0.0
         self._next_quota = 0.0
         self._next_models = 0.0
-        self._dispatched: dict[int, subprocess.Popen] = {}
+        self._dispatched: dict[int, dict] = {}
+        self._dispatch_seq = 0
 
     # ---------- settings / routes (ADR-002) ----------
     def _reload_settings_if_stale(self) -> None:
@@ -427,9 +431,15 @@ class Meter:
             raise ValueError("prompt required")
         if not isinstance(model, str) or not model.strip():
             raise ValueError("model slug required")
+        if not re.fullmatch(r"[\w.+-]+", model):
+            # the slug becomes a filename under runs/ — no traversal, no spaces
+            raise ValueError(f"invalid model slug: {model!r}")
         safe = "".join(c if (c.isalnum() or c in "._-") else "-"
                        for c in str(name or "run"))[:60] or "run"
-        run_id = f"{safe}-{int(_now())}"
+        with self.lock:
+            self._dispatch_seq += 1
+            seq = self._dispatch_seq
+        run_id = f"{safe}-{int(_now())}-{seq}"
         out_path = RUNS_DIR / f"{model}__{run_id}.json"
         err_path = out_path.with_suffix(".err")
         cmd = [_agy_bin(), "-p", prompt, "--model", model,
@@ -441,11 +451,13 @@ class Meter:
                                     env=scrubbed_env(self.settings.get("env_passthrough")),
                                     start_new_session=True)
         with self.lock:
-            self._dispatched[proc.pid] = proc
+            self._dispatched[proc.pid] = {"proc": proc, "out": str(out_path),
+                                          "model": model}
             d = self.state.setdefault("dispatches", [])
             d.append({"run_id": run_id, "model": model, "pool": _pool_for(model),
                       "pid": proc.pid, "started_at": _iso(_now()),
-                      "output": str(out_path), "readonly": bool(guard),
+                      "output": str(out_path),
+                      "readonly": bool(guard and guard.get("fp")),
                       "guard_key": (guard or {}).get("key")})
             self.state["dispatches"] = d[-100:]
         return {"run_id": run_id, "model": model, "pool": _pool_for(model),
@@ -454,15 +466,37 @@ class Meter:
                 "note": "detached run; harvest output_file via read_file, then "
                         "guard_after on guard_key if readonly"}
 
+    def _reap_one(self, pid: int, info: dict) -> None:
+        """Retire a finished dispatch. If it died WITHOUT writing output (rc!=0
+        and the run file is still empty/missing), account exactly one error
+        against its pool and slug — the empty-file skip in ingest_runs would
+        otherwise never see it (review finding #1, 2026-11-15)."""
+        proc = info["proc"]
+        with self.lock:
+            self._dispatched.pop(pid, None)
+        if proc.returncode == 0:
+            return
+        try:
+            if Path(info["out"]).stat().st_size > 0:
+                return  # real output landed; ingest accounting applies
+        except OSError:
+            pass
+        pool = _pool_for(info["model"])
+        p = self.state["pools"].setdefault(pool, _fresh_pool())
+        p["errors"] = p.get("errors", 0) + 1
+        sl = self.state.setdefault("slugs", {}).setdefault(
+            info["model"], {"calls": 0, "errors": 0, "tokens": 0})
+        sl["errors"] += 1
+        self.record_error("agy", info["model"], "run:nowrite")
+
     def _reap_dispatched(self) -> None:
         while True:
             time.sleep(5)
             with self.lock:
                 items = list(self._dispatched.items())
-            for pid, proc in items:
-                if proc.poll() is not None:
-                    with self.lock:
-                        self._dispatched.pop(pid, None)
+            for pid, info in items:
+                if info["proc"].poll() is not None:
+                    self._reap_one(pid, info)
 
     # ---------- auth ----------
     def _read_envelope(self) -> dict | None:
@@ -584,8 +618,17 @@ class Meter:
         newest = self._cursor
         for f in RUNS_DIR.glob("*.json"):
             try:
-                mt = f.stat().st_mtime
+                st = f.stat()
+                mt = st.st_mtime
                 if mt <= self._cursor:
+                    continue
+                if st.st_size == 0:
+                    # In-flight dispatch: dispatch() creates the output file
+                    # empty at spawn and agy writes JSON only at completion, so
+                    # a tick landing mid-run must NOT count a phantom error.
+                    # Never advance the cursor past it — the completed file
+                    # (fresh mtime) gets ingested on a later tick. Runs that
+                    # die without output are accounted by _reap_one.
                     continue
                 rec = json.loads(f.read_text())
             except Exception:
@@ -647,12 +690,13 @@ class Meter:
             if status not in ("SUCCESS", "OK"):
                 sl["errors"] += 1
         cutoff = now - 7 * 86400
-        for f in RUNS_DIR.glob("*.json"):
-            try:
-                if f.stat().st_mtime < cutoff:
-                    f.unlink()
-            except Exception:
-                pass
+        for pat in ("*.json", "*.err"):
+            for f in RUNS_DIR.glob(pat):
+                try:
+                    if f.stat().st_mtime < cutoff:
+                        f.unlink()
+                except Exception:
+                    pass
         self._cursor = newest
 
     # ---------- budgets / window ----------

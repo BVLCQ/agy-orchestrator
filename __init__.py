@@ -161,9 +161,13 @@ def register(ctx) -> None:  # noqa: ANN001 — PluginContext from host
                                "self-contained -> agy")
             meter.note_classifier(res.get("via"))
             out.append({"chunk": chunk[:160], **res})
-        return json.dumps({"routes": out,
-                           "route_models": routes_cfg,
-                           "zai_pressure": meter.zai_pressure()})
+        reply = {"routes": out,
+                 "route_models": routes_cfg,
+                 "zai_pressure": meter.zai_pressure()}
+        if len(chunks) > 20:
+            reply["note"] = (f"{len(chunks)} chunks given; only the first 20 "
+                             "were routed")
+        return json.dumps(reply)
 
     status_schema = {
         "type": "object",

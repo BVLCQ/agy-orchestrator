@@ -1,5 +1,5 @@
 name: agy-meter
-version: 0.3.0
+version: 0.3.1
 description: "Antigravity (agy) meter + router + owned dispatch: auth/quota state, pool metering, route classifier with owner-selected models per route (heuristic default, Kev opt-in), agy_dispatch (env-scrubbed, structurally-metered, guard-wrapped), agy_guard git-fingerprint read-only guard, per-slug usage stats, delegate 429 one-retry."
 pip_dependencies: []
 requires_env: []
