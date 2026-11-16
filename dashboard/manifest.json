@@ -1,0 +1,8 @@
+{
+  "name": "agy-meter",
+  "label": "AGY Meter",
+  "description": "Antigravity (agy) lane meter — auth expiry, quota liveness, pool burn, GLM telemetry",
+  "icon": "Activity",
+  "version": "0.1.0",
+  "api": "plugin_api.py"
+}
