@@ -29,8 +29,17 @@ The chip is clickable. Clicking it triggers a silent re-auth.
 
 ## Tools
 
-- `agy_route`: Classifies task chunks into routes (`plan` / `parallel` / `hermes_delegate`); models resolve from the owner's picker selection. Optional `route` param pins a whole batch.
-- `agy_status`: Returns the full plugin state (pools, auth, quota, telemetry, routes, model catalog).
+- `agy_route`: Classifies task chunks into routes (`plan` / `parallel` / `hermes_delegate`) — heuristic by default, Kev-4B chain opt-in via settings. Optional `route` param pins a whole batch.
+- `agy_status`: Full plugin state (pools, auth, quota, per-slug usage, dispatch log, telemetry).
+- `agy_dispatch`: **Meter-owned dispatch** (ADR-003) — detached, env-scrubbed, structurally-metered agy run; model from the owner's picker; returns run_id + paths immediately.
+- `agy_guard`: Git-fingerprint read-only guard (`before` records a baseline, `after` compares — CLEAN / DRIFT / NOT_A_REPO).
+
+## Dispatch & hygiene (ADR-003)
+
+- **Structural attribution**: `agy_dispatch` writes `runs/<slug>__<run_id>.json` itself — no hand-naming convention to remember.
+- **Env scrub**: agy is a closed binary; credential-looking env vars never reach it (keep-list + `env_passthrough` in settings.json).
+- **Read-only guard**: `agy_dispatch(readonly=true, workdir=…)` fingerprints the git tree before dispatch; `agy_guard(phase=after, key=…)` at harvest proves the tree never changed (DRIFT lists what moved).
+- **Classifier**: heuristic by default (instant); set `{"classifier": "kev"}` in settings.json to re-enable the calibrated chain.
 
 ## Routes & model picker
 
