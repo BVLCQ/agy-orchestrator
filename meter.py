@@ -263,6 +263,41 @@ def _fresh_pool() -> dict:
             "week_start": _iso(_now()), "week_tokens": 0}
 
 
+def _load_run_record(text: str) -> dict | None:
+    """Parse one run record out of a run file's text. agy writes a single JSON
+    object; hand-wrapped dispatches (the pre-0.2 wrapper convention, still
+    honored by the README) may append a trailing status line ("NAME EXIT=0")
+    after it. raw_decode parses the leading object and ignores trailing data,
+    so those runs count as the successes they were instead of fabricating
+    pool errors with zero tokens. Returns None when no JSON object leads —
+    that file is a genuine corpse."""
+    try:
+        rec = json.loads(text)
+        return rec if isinstance(rec, dict) else None
+    except Exception:
+        pass
+    try:
+        rec, _ = json.JSONDecoder().raw_decode(text.lstrip())
+        if isinstance(rec, dict):
+            return rec
+    except Exception:
+        pass
+    return None
+
+
+def _in_window(p: dict, mt) -> bool:
+    """True when a run file's mtime falls inside the pool's current 5h window.
+    A fresh process replays every retained run file (state is rebuilt from
+    files, cursor 0): week/lifetime counters are retention-bounded (7d) so
+    replay is honest there, but a fresh 5h window must not absorb week-old
+    burn, errors, or 429 calibration (restart re-attribution quirk)."""
+    try:
+        return float(mt) >= datetime.fromisoformat(
+            p["window_start"]).timestamp()
+    except Exception:
+        return True
+
+
 def _agy_bin() -> str:
     return shutil.which("agy") or str(Path.home() / ".local" / "bin" / "agy")
 
@@ -636,6 +671,7 @@ class Meter:
         now = _now()
         newest = self._cursor
         for f in RUNS_DIR.glob("*.json"):
+            mt = None
             try:
                 st = f.stat()
                 mt = st.st_mtime
@@ -649,7 +685,9 @@ class Meter:
                     # (fresh mtime) gets ingested on a later tick. Runs that
                     # die without output are accounted by _reap_one.
                     continue
-                rec = json.loads(f.read_text())
+                rec = _load_run_record(f.read_text())
+                if rec is None:
+                    raise ValueError("no leading JSON object in run file")
             except Exception:
                 # unparseable run file (hard-failed dispatch can die mid-write):
                 # still count it against the pool named in the slug prefix
@@ -657,7 +695,8 @@ class Meter:
                     slug = f.name.split("__", 1)[0]
                     bp = self.state["pools"].setdefault(
                         _pool_for(slug), _fresh_pool())
-                    bp["errors"] = bp.get("errors", 0) + 1
+                    if _in_window(bp, mt):
+                        bp["errors"] = bp.get("errors", 0) + 1
                     sl = self.state.setdefault("slugs", {}).setdefault(
                         slug, {"calls": 0, "errors": 0, "tokens": 0})
                     sl["errors"] += 1
@@ -683,14 +722,16 @@ class Meter:
             tin = usage.get("input_tokens") or 0
             tout = usage.get("output_tokens") or 0
             th = usage.get("thinking_tokens") or 0
-            p["tokens_in"] += tin
-            p["tokens_out"] += tout
-            p["thinking_tokens"] += th
+            in_window = _in_window(p, mt)
+            if in_window:
+                p["tokens_in"] += tin
+                p["tokens_out"] += tout
+                p["thinking_tokens"] += th
+                p["calls"] += 1
             p["lifetime_tokens"] += tin + tout + th
             p["week_tokens"] = p.get("week_tokens", 0) + tin + tout + th
-            p["calls"] += 1
             status = str(rec.get("status") or "SUCCESS").upper()
-            if status not in ("SUCCESS", "OK"):
+            if status not in ("SUCCESS", "OK") and in_window:
                 p["errors"] += 1
                 errtxt = str(rec.get("error", ""))
                 is_429 = "429" in errtxt or "quota" in errtxt.lower()

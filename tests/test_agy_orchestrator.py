@@ -407,6 +407,78 @@ def test_corpse_alongside_good_records(m, runs):
 
 
 # --------------------------------------------------------------------------
+# ingest_runs: hand-wrapped files (trailing wrapper line) & restart replay
+# --------------------------------------------------------------------------
+def test_wrapper_trailing_line_counts_tokens_not_error(m, runs):
+    # Pre-0.2 hand wrapper appended "NAME EXIT=0" after agy's JSON object
+    # (README still honors hand-named run files). The run itself succeeded —
+    # its tokens must count and no error may be fabricated.
+    body = json.dumps(make_rec(100, 20, 5, status="SUCCESS"))
+    runs.write_raw("gemini-4-hydrogen-high__chunk3.json",
+                   body + "\nCHUNK3 EXIT=0\n")
+    m.ingest_runs()
+    g = m.state["pools"]["gemini"]
+    assert g["calls"] == 1
+    assert g["errors"] == 0
+    assert g["lifetime_tokens"] == 125
+    assert m.state["slugs"]["gemini-4-hydrogen-high"]["tokens"] == 125
+
+
+def test_multiline_json_with_trailing_wrapper_line_parses(m, runs):
+    runs.write_raw("claude-opus-5-5-high__plan.json",
+                   json.dumps(make_rec(1, 2, 0), indent=2) + "\nPLAN EXIT=0\n")
+    m.ingest_runs()
+    assert m.state["pools"]["third_party"]["lifetime_tokens"] == 3
+
+
+def test_wrapper_only_junk_file_is_still_a_corpse(m, runs):
+    runs.write_raw("gemini-3.8-flash-high__t1.json", "CHUNK1 EXIT=1\n")
+    m.ingest_runs()
+    g = m.state["pools"]["gemini"]
+    assert g["errors"] == 1
+    assert g["lifetime_tokens"] == 0
+
+
+def test_cache_read_tokens_are_never_counted_as_burn(m, runs):
+    # Exact-only doctrine: Google's own total_tokens (= input + output)
+    # excludes cache reads; the meter counts fresh in + out + thinking only.
+    runs.write("gemini-4-hydrogen-high__t.json", {
+        "usage": {"input_tokens": 10, "output_tokens": 4,
+                  "thinking_tokens": 2, "cache_read_tokens": 5_000_000,
+                  "total_tokens": 14}})
+    m.ingest_runs()
+    g = m.state["pools"]["gemini"]
+    assert g["tokens_in"] == 10
+    assert g["lifetime_tokens"] == 16
+
+
+def test_restart_replay_skips_5h_window_but_keeps_week_and_lifetime(m, runs, clock):
+    # A fresh process (cursor 0) replays every retained file: week/lifetime
+    # are retention-bounded so replay is honest there, but a fresh 5h window
+    # must not absorb burn that predates it (re-attribution quirk fix).
+    runs.write("gemini-3.8-flash-high__old.json", make_rec(1000, 0, 0),
+               mtime=clock.t - 3600)
+    runs.write("gemini-3.8-flash-high__new.json", make_rec(10, 0, 0))
+    m.ingest_runs()
+    g = m.state["pools"]["gemini"]
+    assert g["tokens_in"] == 10          # only the in-window file
+    assert g["calls"] == 1
+    assert g["week_tokens"] == 1010      # both files (retention-bounded)
+    assert g["lifetime_tokens"] == 1010
+
+
+def test_restart_replay_of_stale_failed_run_never_heats_pressure(m, runs, clock):
+    runs.write("claude-sonnet-5-5-high__old429.json",
+               make_rec(status="ERROR", error="429 quota exceeded"),
+               mtime=clock.t - 3600)
+    m.ingest_runs()
+    tp = m.state["pools"]["third_party"]
+    assert tp["errors"] == 0             # outside window: no error, no heat
+    assert m.state["errors"] == []       # never registered in router view
+    assert m.state["slugs"]["claude-sonnet-5-5-high"]["errors"] == 1
+
+
+# --------------------------------------------------------------------------
 # 5h window reset preserving week counters / 7d week reset
 # --------------------------------------------------------------------------
 def test_window_not_reset_within_five_hours(m, runs, clock):

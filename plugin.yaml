@@ -1,5 +1,5 @@
 name: agy-orchestrator
-version: 0.4.1
+version: 0.4.2
 description: "Orchestrate Google Antigravity (agy) from Hermes: model-selectable routing with an owner picker (plan / parallel), quota metering across the three subscription pools with 429-calibrated budgets, meter-owned env-scrubbed dispatch (agy_dispatch), git-fingerprint read-only guard (agy_guard), auth lifecycle, and a desktop chip + pane."
 author: BVLCQ
 license: MIT

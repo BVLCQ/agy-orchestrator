@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-11-19
+
+### Fixed
+- **Hand-wrapped run files counted as errors with zero tokens**: run files carrying a trailing wrapper line (`NAME EXIT=0`, the pre-0.2 hand-dispatch convention the README still honors) failed the whole-file JSON parse and fabricated one pool error each while their token burn vanished — locally the biggest runs (brain chunks, ~700k tokens each). `ingest_runs` now parses the leading JSON object via `raw_decode` and ignores trailing data; junk-only files remain genuine corpses.
+- **Restart re-attribution into the fresh 5h window**: a fresh process replays every retained run file with cursor 0, dumping up to a week of burn, errors, and 429 budget calibration into a brand-new 5h window (known cosmetic quirk, 2026-11-07 — now structural, since the wrapper fix rides the same replay). Window-scoped effects are now gated on the file's mtime falling inside the current window; week/lifetime counters stay replay-honest (retention-bounded), and stale failed runs no longer heat router pressure or recalibrate budgets.
+
+### Pinned
+- **cache_read_tokens never counts as burn** (test added): Google's own `total_tokens` excludes cache reads; the meter counts fresh input + output + thinking only, per the exact-only doctrine.
+
 ## [0.4.1] - 2026-11-16
 
 ### Added
